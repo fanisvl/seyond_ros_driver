@@ -11,6 +11,8 @@ lidars:
       frame_id: seyond                                #Frame id
       packet_topic: /iv_packets                       #Packet topic
       frame_topic: /iv_points                         #Frame topic
+      saltas_master: true                            #Enable Saltas clock gating
+      saltas_clock_topic: saltas_clock                #Saltas clock topic
 
       lidar_name: seyond                              #Lidar name
       lidar_ip: 172.168.1.10                          #Lidar ip

@@ -45,6 +45,7 @@ if($ENV{ROS_VERSION} MATCHES "2")
   find_package(builtin_interfaces REQUIRED)
   find_package(rosidl_default_generators REQUIRED)
   find_package(yaml-cpp REQUIRED)
+  find_package(custom_msgs REQUIRED)
 
   rosidl_generate_interfaces(${PROJECT_NAME}
     "msg/SeyondPacket.msg"
@@ -91,6 +92,7 @@ if($ENV{ROS_VERSION} MATCHES "2")
     sensor_msgs
     message_filters
     pcl_conversions
+    custom_msgs
   )
 
   # seyond_test

@@ -38,12 +38,15 @@ USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <limits>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "driver_lidar.h"
 #include "yaml_tools.hpp"
+#include "custom_msgs/msg/lidar_stamped.hpp"
+#include "custom_msgs/msg/node_sync.hpp"
 #include "seyond/msg/seyond_packet.hpp"
 #include "seyond/msg/seyond_scan.hpp"
 #include "src/multi_fusion/ros2_multi_fusion.hpp"
@@ -71,7 +74,21 @@ class ROSAdapter {
   void init() {
     rclcpp::QoS qos(rclcpp::KeepLast(10));
     qos.reliable();
-    inno_frame_pub_ = node_ptr_->create_publisher<sensor_msgs::msg::PointCloud2>(lidar_config_.frame_topic, qos);
+    saltas_master_ = lidar_config_.saltas_master;
+    saltas_clock_topic_ = lidar_config_.saltas_clock_topic;
+    node_ptr_->get_parameter_or<bool>("saltas_master", saltas_master_, saltas_master_);
+    node_ptr_->get_parameter_or<std::string>("saltas_clock_topic", saltas_clock_topic_, saltas_clock_topic_);
+
+    if (saltas_master_) {
+      stamped_pub_ = node_ptr_->create_publisher<custom_msgs::msg::LidarStamped>(
+          lidar_config_.frame_topic + "_stamped", qos);
+      saltas_sub_ = node_ptr_->create_subscription<custom_msgs::msg::NodeSync>(
+          saltas_clock_topic_, 10, std::bind(&ROSAdapter::saltasCallback, this, std::placeholders::_1));
+      ROS_INFO("Saltas master enabled. Publishing stamped LiDAR on %s_stamped", lidar_config_.frame_topic.c_str());
+    } else {
+      inno_frame_pub_ = node_ptr_->create_publisher<sensor_msgs::msg::PointCloud2>(lidar_config_.frame_topic, qos);
+    }
+
     driver_ptr_->register_publish_frame_callback(
         std::bind(&ROSAdapter::publishFrame, this, std::placeholders::_1, std::placeholders::_2));
 
@@ -94,6 +111,15 @@ class ROSAdapter {
   }
 
  private:
+  void saltasCallback(const custom_msgs::msg::NodeSync::SharedPtr msg) {
+    if (!msg->exec_perception) {
+      return;
+    }
+    std::lock_guard<std::mutex> lock(sync_mutex_);
+    current_global_index_ = msg->global_index;
+    pending_trigger_ = true;
+  }
+
   void subscribePacket(const seyond::msg::SeyondScan::SharedPtr msg) {
     for (const auto& pkt : msg->packets) {
       if (lidar_config_.replay_rosbag && pkt.has_table && !driver_ptr_->anglehv_table_init_) {
@@ -114,7 +140,11 @@ class ROSAdapter {
       ros_msg.header.stamp.nanosec = ts_ns % 1000000000;
       ros_msg.width = driver_ptr_->pcl_pc_ptr->width;
       ros_msg.height = driver_ptr_->pcl_pc_ptr->height;
-      inno_frame_pub_->publish(std::move(ros_msg));
+      if (saltas_master_) {
+        publishStampedIfTriggered(ros_msg);
+      } else if (inno_frame_pub_) {
+        inno_frame_pub_->publish(std::move(ros_msg));
+      }
       driver_ptr_->pcl_pc_ptr->clear();
     }
   }
@@ -158,7 +188,24 @@ class ROSAdapter {
     ros_msg.header.stamp.nanosec = ts_ns % 1000000000;
     ros_msg.width = frame.width;
     ros_msg.height = frame.height;
-    inno_frame_pub_->publish(std::move(ros_msg));
+    if (saltas_master_) {
+      publishStampedIfTriggered(ros_msg);
+    } else if (inno_frame_pub_) {
+      inno_frame_pub_->publish(std::move(ros_msg));
+    }
+  }
+
+  void publishStampedIfTriggered(const sensor_msgs::msg::PointCloud2& ros_msg) {
+    std::lock_guard<std::mutex> lock(sync_mutex_);
+    if (!pending_trigger_ || !stamped_pub_) {
+      return;
+    }
+    custom_msgs::msg::LidarStamped stamped_msg;
+    stamped_msg.header = ros_msg.header;
+    stamped_msg.global_index = current_global_index_;
+    stamped_msg.pointcloud = ros_msg;
+    stamped_pub_->publish(stamped_msg);
+    pending_trigger_ = false;
   }
 
  private:
@@ -169,8 +216,16 @@ class ROSAdapter {
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr inno_frame_pub_{nullptr};
   rclcpp::Publisher<seyond::msg::SeyondScan>::SharedPtr inno_pkt_pub_{nullptr};
   rclcpp::Subscription<seyond::msg::SeyondScan>::SharedPtr inno_pkt_sub_{nullptr};
+  rclcpp::Publisher<custom_msgs::msg::LidarStamped>::SharedPtr stamped_pub_{nullptr};
+  rclcpp::Subscription<custom_msgs::msg::NodeSync>::SharedPtr saltas_sub_{nullptr};
 
   std::unique_ptr<seyond::msg::SeyondScan> inno_scan_msg_;
+
+  bool saltas_master_{false};
+  std::string saltas_clock_topic_;
+  std::mutex sync_mutex_;
+  int64_t current_global_index_{0};
+  bool pending_trigger_{false};
 
   uint32_t frame_count_;
   uint32_t table_send_hz_{20};
@@ -231,6 +286,8 @@ class ROSNode {
     node_ptr_->get_parameter_or<int32_t>("aggregate_num", lidar_config.aggregate_num, 20);
     node_ptr_->get_parameter_or<std::string>("frame_id", lidar_config.frame_id, "seyond");
     node_ptr_->get_parameter_or<std::string>("frame_topic", lidar_config.frame_topic, "iv_points");
+    node_ptr_->get_parameter_or<bool>("saltas_master", lidar_config.saltas_master, false);
+    node_ptr_->get_parameter_or<std::string>("saltas_clock_topic", lidar_config.saltas_clock_topic, "saltas_clock");
     node_ptr_->get_parameter_or<std::string>("packet_topic", lidar_config.packet_topic, "iv_packets");
 
     // Parse parameters for driver

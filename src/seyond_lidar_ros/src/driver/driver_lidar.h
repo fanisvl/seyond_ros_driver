@@ -71,6 +71,8 @@ struct LidarConfig {
   std::string frame_id;
   std::string packet_topic;
   std::string frame_topic;
+  bool saltas_master;
+  std::string saltas_clock_topic;
 
   std::string lidar_name;
   std::string lidar_ip;

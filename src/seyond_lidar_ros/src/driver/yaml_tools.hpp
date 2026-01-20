@@ -75,6 +75,8 @@ class YamlTools {
         tmp_config.frame_id = lidar_config["lidar"]["frame_id"].as<std::string>("seyond");
         tmp_config.packet_topic = lidar_config["lidar"]["packet_topic"].as<std::string>("/iv_packets");
         tmp_config.frame_topic = lidar_config["lidar"]["frame_topic"].as<std::string>("/iv_points");
+        tmp_config.saltas_master = lidar_config["lidar"]["saltas_master"].as<bool>(false);
+        tmp_config.saltas_clock_topic = lidar_config["lidar"]["saltas_clock_topic"].as<std::string>("saltas_clock");
 
         tmp_config.lidar_name = lidar_config["lidar"]["lidar_name"].as<std::string>("seyond");
         tmp_config.lidar_ip = lidar_config["lidar"]["lidar_ip"].as<std::string>("172.168.1.10");
@@ -122,6 +124,8 @@ class YamlTools {
       "\tframe_id: %s\n"
       "\tpacket_topic: %s\n"
       "\tframe_topic: %s\n"
+      "\tsaltas_master: %d\n"
+      "\tsaltas_clock_topic: %s\n"
       "\tlidar_name: %s\n"
       "\tlidar_ip: %s\n"
       "\tport: %d\n"
@@ -148,6 +152,7 @@ class YamlTools {
       "\ttransform_matrix: %s\n\n",
       lidar_config.replay_rosbag, lidar_config.packet_mode, lidar_config.aggregate_num,
       lidar_config.frame_id.c_str(), lidar_config.packet_topic.c_str(), lidar_config.frame_topic.c_str(),
+      lidar_config.saltas_master, lidar_config.saltas_clock_topic.c_str(),
       lidar_config.lidar_name.c_str(), lidar_config.lidar_ip.c_str(), lidar_config.port, lidar_config.udp_port,
       lidar_config.reflectance_mode, lidar_config.multiple_return,
       lidar_config.enable_falcon_ring, lidar_config.continue_live,
